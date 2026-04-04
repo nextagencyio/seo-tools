@@ -1,0 +1,23 @@
+{
+  "name": "seo-tools",
+  "version": "1.0.0",
+  "description": "SEO keyword research and competition analysis tools",
+  "type": "module",
+  "scripts": {
+    "keywords": "tsx scripts/keyword-research.ts",
+    "keywords:trends": "tsx scripts/keyword-research.ts --mode trends",
+    "keywords:autocomplete": "tsx scripts/keyword-research.ts --mode autocomplete"
+  },
+  "keywords": [
+    "seo",
+    "keyword-research",
+    "google-trends"
+  ],
+  "author": "Jay Callicott",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.4.0",
+    "google-trends-api": "^4.9.2",
+    "tsx": "^4.21.0"
+  }
+}
