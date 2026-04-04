@@ -42,8 +42,7 @@ npx tsx scripts/keyword-research.ts --enrich --seeds "your keyword"
 | 1. Autocomplete | Google Suggest API | Free | 200-300 keyword suggestions per seed (alphabet + question + preposition expansion) |
 | 2. Trends | Google Trends | Free | Rising queries, related queries, interest over time |
 | 3. Heuristic | Built-in | Free | Competition difficulty score based on keyword characteristics |
-| 4. allintitle | Google Custom Search API | Free (100/day) | Exact count of pages targeting each keyword in title |
-| 5. Volume/SERP | DataForSEO | ~$0.05/1K keywords | Search volume, CPC, SERP competition analysis |
+| 4. Volume/SERP | DataForSEO | ~$0.05/1K keywords | Search volume, CPC, SERP competition analysis |
 
 ## Output
 
@@ -53,19 +52,6 @@ Reports are saved to `scripts/keyword-data/` in three formats:
 - **JSON** — raw data for further processing
 
 ## API Setup (all optional)
-
-### Google Custom Search (free, 100 queries/day)
-
-Provides `allintitle:` result counts — one of the most reliable competition signals.
-
-1. Create API key at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Enable "Custom Search JSON API" in the [API Library](https://console.cloud.google.com/apis/library/customsearch.googleapis.com)
-3. Create a search engine at [cse.google.com](https://cse.google.com/cse/) (search the whole web)
-4. Add to `.env.local`:
-   ```
-   GOOGLE_CSE_API_KEY=your_key
-   GOOGLE_CSE_CX=your_search_engine_id
-   ```
 
 ### DataForSEO (pay-as-you-go)
 
@@ -82,5 +68,4 @@ Provides exact monthly search volume, CPC, keyword difficulty, and SERP analysis
 
 - **Heuristic score** (0-100): Lower = easier. Based on word count, question format, niche specificity. Rough estimate when you don't have SERP data.
 - **SERP score** (0-100, DataForSEO): Lower = easier. Based on actual search results — Reddit/forums in top 5, title match count, domain authority.
-- **allintitle count**: How many pages have the exact keyword in their title. Under 200 = very low competition.
 - **Rising queries**: Keywords gaining traction fast — often the best opportunities.

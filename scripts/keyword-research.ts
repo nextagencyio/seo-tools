@@ -2,8 +2,7 @@
  * Keyword Research Tool — Ubersuggest-style keyword discovery
  *
  * Uses free APIs (Google Autocomplete, Google Trends) plus optional
- * DataForSEO for search volume/difficulty data and Google Custom Search
- * for competition analysis.
+ * DataForSEO for search volume/difficulty data.
  *
  * Usage:
  *   npx tsx scripts/keyword-research.ts                    # Run with default seed keywords
@@ -18,14 +17,6 @@
  * Environment variables (all optional):
  *   DATAFORSEO_LOGIN      — DataForSEO API login (for search volume + SERP analysis)
  *   DATAFORSEO_PASSWORD   — DataForSEO API password
- *   GOOGLE_CSE_API_KEY    — Google Custom Search API key (free 100 queries/day)
- *   GOOGLE_CSE_CX         — Google Custom Search Engine ID
- *
- * Setup for Google Custom Search (free, 100 queries/day):
- *   1. Go to https://console.cloud.google.com/apis/credentials → Create API Key
- *   2. Enable "Custom Search API" at https://console.cloud.google.com/apis/library
- *   3. Create a search engine at https://cse.google.com/cse/ (search the whole web)
- *   4. Set GOOGLE_CSE_API_KEY and GOOGLE_CSE_CX in your .env.local
  *
  * Setup for DataForSEO (pay-as-you-go, ~$0.05/1K keywords):
  *   1. Sign up at https://dataforseo.com
@@ -320,42 +311,6 @@ async function fetchTrendsData(keyword: string): Promise<TrendsResult> {
   return result
 }
 
-// ── Google Custom Search API (allintitle competition check) ─────────────────
-
-async function fetchAllInTitleCount(keyword: string): Promise<number | null> {
-  const apiKey = process.env.GOOGLE_CSE_API_KEY
-  const cx = process.env.GOOGLE_CSE_CX
-
-  if (!apiKey || !cx) return null
-
-  const query = `allintitle:${keyword}`
-  const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=1`
-
-  try {
-    const response = await fetch(url)
-
-    if (response.status === 429) {
-      console.warn('  ⚠ Google CSE rate limit reached (100/day free)')
-      return null
-    }
-
-    if (!response.ok) {
-      console.warn(`  ⚠ Google CSE returned ${response.status}`)
-      return null
-    }
-
-    const data = await response.json() as {
-      searchInformation?: { totalResults?: string }
-    }
-
-    const total = data.searchInformation?.totalResults
-    return total ? parseInt(total, 10) : 0
-  } catch (err) {
-    console.warn(`  ⚠ CSE error for "${keyword}":`, (err as Error).message)
-    return null
-  }
-}
-
 // ── Heuristic Competition Estimator (free, no API needed) ───────────────────
 
 function estimateCompetitionHeuristic(keyword: string): {
@@ -446,10 +401,16 @@ async function fetchDataForSEOVolume(
 
   const auth = Buffer.from(`${login}:${password}`).toString('base64')
 
+  // DataForSEO rejects batches containing keywords with too many words (max ~10)
+  const filtered = keywords.filter(kw => kw.split(/\s+/).length <= 10)
+  if (filtered.length < keywords.length) {
+    console.log(`  (Skipped ${keywords.length - filtered.length} keywords too long for DataForSEO)`)
+  }
+
   // DataForSEO accepts up to 700 keywords per request
   const batches: string[][] = []
-  for (let i = 0; i < keywords.length; i += 700) {
-    batches.push(keywords.slice(i, i + 700))
+  for (let i = 0; i < filtered.length; i += 700) {
+    batches.push(filtered.slice(i, i + 700))
   }
 
   for (const batch of batches) {
@@ -480,25 +441,36 @@ async function fetchDataForSEOVolume(
       }
 
       const data = await response.json()
+      const taskStatus = data?.tasks?.[0]?.status_code
+      if (taskStatus !== 20000) {
+        console.warn(`  ⚠ DataForSEO task status: ${taskStatus} — ${data?.tasks?.[0]?.status_message}`)
+      }
       const tasks = data?.tasks?.[0]?.result
 
-      if (tasks) {
+      if (tasks && Array.isArray(tasks)) {
         for (const item of tasks) {
+          if (!item.keyword) continue
+          const competitionRaw = item.competition_index ?? item.competition ?? 0
           results.set(item.keyword, {
             keyword: item.keyword,
             searchVolume: item.search_volume ?? 0,
-            competition: item.competition ?? 0,
+            competition: typeof competitionRaw === 'number' ? competitionRaw / 100 : 0,
             cpc: item.cpc ?? 0,
             categories: item.categories ?? [],
-            monthlySearches: (item.monthly_searches ?? []).map(
-              (m: { year: number; month: number; search_volume: number }) => ({
-                year: m.year,
-                month: m.month,
-                searchVolume: m.search_volume,
-              }),
-            ),
+            monthlySearches: Array.isArray(item.monthly_searches)
+              ? item.monthly_searches.map(
+                  (m: { year: number; month: number; search_volume: number }) => ({
+                    year: m.year,
+                    month: m.month,
+                    searchVolume: m.search_volume,
+                  }),
+                )
+              : [],
           })
         }
+        console.log(`  ✓ Got volume data for ${results.size} keywords`)
+      } else {
+        console.warn(`  ⚠ DataForSEO returned no results`)
       }
     } catch (err) {
       console.warn(`  ⚠ DataForSEO error:`, (err as Error).message)
@@ -627,7 +599,6 @@ function generateReport(
   trendsData: Map<string, TrendsResult>,
   volumeData: Map<string, DataForSEOVolumeResult>,
   serpData: Map<string, SERPAnalysis>,
-  allintitleCounts: Map<string, number>,
   heuristics: Map<string, { score: number; signals: string[] }>,
 ): string {
   const lines: string[] = []
@@ -643,7 +614,6 @@ function generateReport(
   lines.push('')
   lines.push(`- Google Autocomplete: ${allKeywords.filter(k => k.source === 'autocomplete').length} keywords`)
   lines.push(`- Google Trends: ${allKeywords.filter(k => k.source.startsWith('trends')).length} keywords`)
-  lines.push(`- Google CSE allintitle: ${allintitleCounts.size > 0 ? `${allintitleCounts.size} checked` : 'not configured (set GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX)'}`)
   lines.push(`- DataForSEO volume: ${volumeData.size > 0 ? `${volumeData.size} enriched` : 'not configured (set DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD)'}`)
   lines.push(`- Heuristic scoring: ${heuristics.size} keywords scored`)
   lines.push('')
@@ -697,8 +667,8 @@ function generateReport(
     lines.push('')
 
     if (volumeData.size > 0) {
-      lines.push('| Keyword | Volume | Competition | CPC | Heuristic | allintitle |')
-      lines.push('|---------|--------|-------------|-----|-----------|-----------|')
+      lines.push('| Keyword | Volume | Competition | CPC | Heuristic |')
+      lines.push('|---------|--------|-------------|-----|-----------|')
 
       const sorted = [...keywords].sort((a, b) => {
         const volA = volumeData.get(a.keyword)?.searchVolume ?? 0
@@ -708,15 +678,14 @@ function generateReport(
 
       for (const kw of sorted) {
         const vol = volumeData.get(kw.keyword)
-        const ait = allintitleCounts.get(kw.keyword)
         const heur = heuristics.get(kw.keyword)
         lines.push(
-          `| ${kw.keyword} | ${vol?.searchVolume ?? '—'} | ${vol ? (vol.competition * 100).toFixed(0) : '—'} | $${vol?.cpc?.toFixed(2) ?? '—'} | ${heur?.score ?? '—'}/100 | ${ait?.toLocaleString() ?? '—'} |`,
+          `| ${kw.keyword} | ${vol?.searchVolume ?? '—'} | ${vol ? (vol.competition * 100).toFixed(0) : '—'} | $${vol?.cpc?.toFixed(2) ?? '—'} | ${heur?.score ?? '—'}/100 |`,
         )
       }
     } else {
-      lines.push('| Keyword | Source | Heuristic Score | Signals | allintitle |')
-      lines.push('|---------|--------|----------------|---------|-----------|')
+      lines.push('| Keyword | Source | Heuristic Score | Signals |')
+      lines.push('|---------|--------|----------------|---------|')
 
       const sorted = [...keywords].sort((a, b) => {
         const heurA = heuristics.get(a.keyword)?.score ?? 50
@@ -726,9 +695,8 @@ function generateReport(
 
       for (const kw of sorted) {
         const heur = heuristics.get(kw.keyword)
-        const ait = allintitleCounts.get(kw.keyword)
         lines.push(
-          `| ${kw.keyword} | ${kw.source} | ${heur?.score ?? '—'}/100 | ${heur?.signals.join(', ') ?? '—'} | ${ait?.toLocaleString() ?? '—'} |`,
+          `| ${kw.keyword} | ${kw.source} | ${heur?.score ?? '—'}/100 | ${heur?.signals.join(', ') ?? '—'} |`,
         )
       }
     }
@@ -770,27 +738,18 @@ function generateReport(
   // ── Best Opportunities Summary ──
   lines.push('## 🎯 Best Keyword Opportunities')
   lines.push('')
-  lines.push('Sorted by opportunity score (combines heuristic difficulty, allintitle count, and volume data when available):')
+  lines.push('Sorted by opportunity score (combines heuristic difficulty and volume data when available):')
   lines.push('')
 
   // Build an opportunity score combining available data
   const opportunities = allKeywords
     .map(kw => {
       const heur = heuristics.get(kw.keyword)
-      const ait = allintitleCounts.get(kw.keyword)
       const vol = volumeData.get(kw.keyword)
       const serp = serpData.get(kw.keyword)
 
       // Opportunity score: lower difficulty + higher volume = better
       let opportunityScore = 100 - (heur?.score ?? 50)
-
-      // Boost for low allintitle counts
-      if (ait !== undefined) {
-        if (ait < 50) opportunityScore += 30
-        else if (ait < 200) opportunityScore += 20
-        else if (ait < 1000) opportunityScore += 10
-        else if (ait > 10000) opportunityScore -= 10
-      }
 
       // Boost for volume
       if (vol?.searchVolume) {
@@ -812,7 +771,6 @@ function generateReport(
         ...kw,
         heuristicScore: heur?.score ?? 50,
         heuristicSignals: heur?.signals ?? [],
-        allintitle: ait,
         volume: vol?.searchVolume,
         serpScore: serp?.competitionScore,
         opportunityScore: Math.max(0, Math.min(200, opportunityScore)),
@@ -820,12 +778,12 @@ function generateReport(
     })
     .sort((a, b) => b.opportunityScore - a.opportunityScore)
 
-  lines.push('| # | Keyword | Opp. Score | Difficulty | Volume | allintitle | Rising? | Signals |')
-  lines.push('|---|---------|-----------|------------|--------|-----------|---------|---------|')
+  lines.push('| # | Keyword | Opp. Score | Difficulty | Volume | Rising? | Signals |')
+  lines.push('|---|---------|-----------|------------|--------|---------|---------|')
 
   for (const [i, kw] of opportunities.slice(0, 50).entries()) {
     lines.push(
-      `| ${i + 1} | ${kw.keyword} | ${kw.opportunityScore} | ${kw.heuristicScore}/100 | ${kw.volume ?? '—'} | ${kw.allintitle?.toLocaleString() ?? '—'} | ${kw.isRising ? 'YES' : ''} | ${kw.heuristicSignals.join(', ')} |`,
+      `| ${i + 1} | ${kw.keyword} | ${kw.opportunityScore} | ${kw.heuristicScore}/100 | ${kw.volume ?? '—'} | ${kw.isRising ? 'YES' : ''} | ${kw.heuristicSignals.join(', ')} |`,
     )
   }
 
@@ -841,7 +799,6 @@ function generateReport(
 function generateCSV(
   allKeywords: KeywordData[],
   volumeData: Map<string, DataForSEOVolumeResult>,
-  allintitleCounts: Map<string, number>,
   serpData: Map<string, SERPAnalysis>,
   heuristics: Map<string, { score: number; signals: string[] }>,
 ): string {
@@ -854,7 +811,6 @@ function generateCSV(
     'cpc',
     'heuristic_score',
     'heuristic_signals',
-    'allintitle_count',
     'serp_competition_score',
     'has_forum_top5',
     'has_reddit_top5',
@@ -863,7 +819,6 @@ function generateCSV(
 
   const rows = allKeywords.map(kw => {
     const vol = volumeData.get(kw.keyword)
-    const ait = allintitleCounts.get(kw.keyword)
     const serp = serpData.get(kw.keyword)
     const heur = heuristics.get(kw.keyword)
 
@@ -876,7 +831,6 @@ function generateCSV(
       vol?.cpc?.toFixed(2) ?? '',
       heur?.score ?? '',
       `"${heur?.signals.join('; ') ?? ''}"`,
-      ait ?? '',
       serp?.competitionScore ?? '',
       serp?.hasForumInTop5 ?? '',
       serp?.hasRedditInTop5 ?? '',
@@ -903,18 +857,16 @@ async function main() {
   console.log()
 
   // Check available APIs
-  const hasCSE = !!(process.env.GOOGLE_CSE_API_KEY && process.env.GOOGLE_CSE_CX)
   const hasDataForSEO = !!(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD)
 
   console.log('API availability:')
   console.log(`  Google Autocomplete:  ✅ (free, no key needed)`)
   console.log(`  Google Trends:        ✅ (free, no key needed)`)
-  console.log(`  Google CSE allintitle: ${hasCSE ? '✅' : '❌ Set GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX'}`)
   console.log(`  DataForSEO volume:    ${hasDataForSEO ? '✅' : '❌ Set DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD'}`)
   console.log(`  Heuristic scoring:    ✅ (built-in, always available)`)
   console.log()
 
-  if (!hasCSE && !hasDataForSEO) {
+  if (!hasDataForSEO) {
     console.log('Tip: Add API keys for richer data. See script header for setup instructions.')
     console.log()
   }
@@ -1002,48 +954,7 @@ async function main() {
   }
   console.log(`✓ Scored ${heuristics.size} keywords with heuristic competition estimator`)
 
-  // ── Step 4: Google CSE allintitle Check (if available) ──
-  const allintitleCounts = new Map<string, number>()
-
-  if (hasCSE) {
-    console.log('\n═══ Phase 4: Google CSE allintitle Competition Check ═══')
-    console.log()
-
-    // Prioritize: seeds + rising queries + low-heuristic-score autocomplete
-    const priorityKeywords = allKeywords
-      .filter(kw => kw.source === 'seed' || kw.source === 'trends-rising')
-      .map(kw => kw.keyword)
-
-    const lowHeuristicKeywords = allKeywords
-      .filter(kw => kw.source === 'autocomplete')
-      .sort((a, b) => (heuristics.get(a.keyword)?.score ?? 50) - (heuristics.get(b.keyword)?.score ?? 50))
-      .slice(0, 50)
-      .map(kw => kw.keyword)
-
-    const toCheck = [...new Set([...priorityKeywords, ...lowHeuristicKeywords])].slice(0, 95)
-
-    console.log(`Checking allintitle for ${toCheck.length} priority keywords (100/day free limit)...`)
-    console.log()
-
-    for (const kw of toCheck) {
-      process.stdout.write(`  allintitle: "${kw}"...`)
-      const count = await fetchAllInTitleCount(kw)
-      if (count !== null) {
-        allintitleCounts.set(kw, count)
-        process.stdout.write(` ${count.toLocaleString()} results\n`)
-      } else {
-        process.stdout.write(' (rate limited)\n')
-        break // Stop if we hit the rate limit
-      }
-      await sleep(200) // Small delay for CSE API
-    }
-
-    console.log(`\n✓ allintitle data for ${allintitleCounts.size} keywords`)
-  } else {
-    console.log('\n(Skipping allintitle check — set GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX for this)')
-  }
-
-  // ── Step 5: DataForSEO Enrichment (optional) ──
+  // ── Step 4: DataForSEO Enrichment (optional) ──
   let volumeData = new Map<string, DataForSEOVolumeResult>()
   let serpData = new Map<string, SERPAnalysis>()
 
@@ -1082,8 +993,8 @@ async function main() {
 
   await fs.mkdir(OUTPUT_DIR, { recursive: true })
 
-  const report = generateReport(allKeywords, trendsData, volumeData, serpData, allintitleCounts, heuristics)
-  const csv = generateCSV(allKeywords, volumeData, allintitleCounts, serpData, heuristics)
+  const report = generateReport(allKeywords, trendsData, volumeData, serpData, heuristics)
+  const csv = generateCSV(allKeywords, volumeData, serpData, heuristics)
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const reportPath = path.join(OUTPUT_DIR, `report-${timestamp}.md`)
@@ -1101,7 +1012,6 @@ async function main() {
           mode,
           depth,
           enriched: enrich || hasDataForSEO,
-          hasCSE,
           hasDataForSEO,
           generatedAt: new Date().toISOString(),
           totalKeywords: allKeywords.length,
@@ -1110,7 +1020,6 @@ async function main() {
         trends: Object.fromEntries(trendsData),
         volumeData: Object.fromEntries(volumeData),
         serpData: Object.fromEntries(serpData),
-        allintitleCounts: Object.fromEntries(allintitleCounts),
         heuristics: Object.fromEntries(heuristics),
       },
       null,
@@ -1137,27 +1046,20 @@ async function main() {
     const withVolume = allKeywords.filter(k => (volumeData.get(k.keyword)?.searchVolume ?? 0) > 0)
     console.log(`  With search volume:    ${withVolume.length}`)
   }
-  if (allintitleCounts.size > 0) {
-    console.log(`  allintitle checked:    ${allintitleCounts.size}`)
-  }
-
   // Show top opportunities
   const topOps = allKeywords
     .map(kw => ({
       keyword: kw.keyword,
       score: heuristics.get(kw.keyword)?.score ?? 50,
       volume: volumeData.get(kw.keyword)?.searchVolume,
-      allintitle: allintitleCounts.get(kw.keyword),
       rising: kw.isRising,
     }))
     .sort((a, b) => {
-      // Sort by: low heuristic + has volume + low allintitle + rising
+      // Sort by: low heuristic + has volume + rising
       let scoreA = a.score
       let scoreB = b.score
       if (a.volume && a.volume > 100) scoreA -= 20
       if (b.volume && b.volume > 100) scoreB -= 20
-      if (a.allintitle !== undefined && a.allintitle < 200) scoreA -= 15
-      if (b.allintitle !== undefined && b.allintitle < 200) scoreB -= 15
       if (a.rising) scoreA -= 10
       if (b.rising) scoreB -= 10
       return scoreA - scoreB
@@ -1172,15 +1074,11 @@ async function main() {
       `difficulty: ${op.score}/100`,
     ]
     if (op.volume) parts.push(`vol: ${op.volume}`)
-    if (op.allintitle !== undefined) parts.push(`allintitle: ${op.allintitle.toLocaleString()}`)
     if (op.rising) parts.push('📈 RISING')
     console.log(`  ${parts.join(' | ')}`)
   }
 
   console.log('\n💡 Tips:')
-  if (!hasCSE) {
-    console.log('  - Set GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX for allintitle competition data (free, 100/day)')
-  }
   if (!hasDataForSEO) {
     console.log('  - Set DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD for search volume (pay-as-you-go, ~$0.05/1K)')
   }

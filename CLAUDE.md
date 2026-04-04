@@ -15,8 +15,7 @@ The main script (`scripts/keyword-research.ts`) runs a multi-phase pipeline:
 1. **Google Autocomplete** — expands seed keywords using alphabet soup, question prefixes, and prepositions. Free, no API key needed.
 2. **Google Trends** — finds rising and related queries via `google-trends-api` npm package. Free, no key needed.
 3. **Heuristic Scoring** — built-in competition estimator based on keyword characteristics (word count, question format, niche specificity).
-4. **Google Custom Search API** — `allintitle:` result counts for competition analysis. Free tier: 100 queries/day. Requires `GOOGLE_CSE_API_KEY` + `GOOGLE_CSE_CX`.
-5. **DataForSEO** — exact monthly search volume, CPC, keyword difficulty, and live SERP analysis. Pay-as-you-go (~$0.05/1K keywords). Requires `DATAFORSEO_LOGIN` + `DATAFORSEO_PASSWORD`.
+4. **DataForSEO** — exact monthly search volume, CPC, keyword difficulty, and live SERP analysis. Pay-as-you-go (~$0.05/1K keywords). Requires `DATAFORSEO_LOGIN` + `DATAFORSEO_PASSWORD`.
 
 ## Usage
 
@@ -45,7 +44,7 @@ npm run keywords:autocomplete -- --seeds "your keyword"
 |------|---------|
 | `scripts/keyword-research.ts` | Main keyword research script |
 | `scripts/google-trends-api.d.ts` | Type declarations for google-trends-api |
-| `.env.local` | API keys (DataForSEO, Google CSE) |
+| `.env.local` | API keys (DataForSEO) |
 | `scripts/keyword-data/` | Output directory for reports (gitignored) |
 
 ## Environment Variables
@@ -56,14 +55,11 @@ All optional — the tool works without any API keys (autocomplete + trends + he
 |----------|---------|---------|
 | `DATAFORSEO_LOGIN` | DataForSEO | Search volume, CPC, SERP analysis |
 | `DATAFORSEO_PASSWORD` | DataForSEO | API password |
-| `GOOGLE_CSE_API_KEY` | Google Cloud | allintitle competition checks |
-| `GOOGLE_CSE_CX` | Google CSE | Custom Search Engine ID |
 
 ## Interpreting Results
 
 - **Heuristic score** (0-100): Lower = easier to rank. Rough estimate based on keyword structure.
 - **SERP score** (0-100): Lower = easier. Based on actual Google results — Reddit/forums ranking, title matches, domain authority.
-- **allintitle count**: Pages with the exact keyword in their title. Under 200 = very low competition.
 - **Rising queries** from Google Trends: Keywords gaining traction — often the best opportunities.
 - **CPC**: High CPC = commercial intent. Advertisers pay for these keywords, which signals value.
 
