@@ -401,10 +401,13 @@ async function fetchDataForSEOVolume(
 
   const auth = Buffer.from(`${login}:${password}`).toString('base64')
 
-  // DataForSEO rejects batches containing keywords with too many words (max ~10)
-  const filtered = keywords.filter(kw => kw.split(/\s+/).length <= 10)
+  // DataForSEO rejects keywords with too many words (max ~10) or invalid characters
+  const sanitized = keywords
+    .map(kw => kw.replace(/[^\w\s\-']/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(kw => kw.length > 0)
+  const filtered = [...new Set(sanitized)].filter(kw => kw.split(/\s+/).length <= 10)
   if (filtered.length < keywords.length) {
-    console.log(`  (Skipped ${keywords.length - filtered.length} keywords too long for DataForSEO)`)
+    console.log(`  (Skipped ${keywords.length - filtered.length} keywords too long or with invalid characters for DataForSEO)`)
   }
 
   // DataForSEO accepts up to 700 keywords per request
