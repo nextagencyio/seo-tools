@@ -405,7 +405,7 @@ async function fetchDataForSEOVolume(
   const sanitized = keywords
     .map(kw => kw.replace(/[^\w\s\-']/g, ' ').replace(/\s+/g, ' ').trim())
     .filter(kw => kw.length > 0)
-  const filtered = [...new Set(sanitized)].filter(kw => kw.split(/\s+/).length <= 10)
+  const filtered = [...new Set(sanitized)].filter(kw => kw.split(/\s+/).length <= 10 && kw.length <= 80)
   if (filtered.length < keywords.length) {
     console.log(`  (Skipped ${keywords.length - filtered.length} keywords too long or with invalid characters for DataForSEO)`)
   }
