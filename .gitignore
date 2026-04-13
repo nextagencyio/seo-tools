@@ -3,3 +3,9 @@ node_modules
 .env
 scripts/keyword-data
 .playwright-mcp
+
+# Credentials — defense in depth. Keys live outside the repo anyway.
+*service-account*.json
+*credentials*.json
+*.key
+*.pem

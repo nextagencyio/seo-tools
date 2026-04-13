@@ -7,7 +7,9 @@
     "keywords": "tsx scripts/keyword-research.ts",
     "keywords:trends": "tsx scripts/keyword-research.ts --mode trends",
     "keywords:autocomplete": "tsx scripts/keyword-research.ts --mode autocomplete",
-    "audit": "tsx scripts/seo-audit.ts"
+    "audit": "tsx scripts/seo-audit.ts",
+    "gsc": "tsx scripts/gsc-query.ts",
+    "gsc:sites": "tsx scripts/gsc-query.ts list-sites"
   },
   "keywords": [
     "seo",
@@ -20,6 +22,7 @@
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.0",
     "google-trends-api": "^4.9.2",
+    "googleapis": "^171.4.0",
     "tsx": "^4.21.0"
   }
 }
