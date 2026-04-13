@@ -29,7 +29,9 @@ if (!KEY_PATH) {
 
 const auth = new google.auth.GoogleAuth({
   keyFile: resolve(KEY_PATH),
-  scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+  // webmasters (not readonly) so we can submit/delete sitemaps.
+  // URL inspection + search analytics also work under this scope.
+  scopes: ['https://www.googleapis.com/auth/webmasters'],
 })
 
 const webmasters = google.webmasters({ version: 'v3', auth })
@@ -319,6 +321,37 @@ async function cmdBulkInspect(args: Args) {
   }
 }
 
+async function cmdSitemapSubmit(args: Args) {
+  const siteArg = args._[1]
+  const sitemapUrl = args._[2]
+  if (!siteArg || !sitemapUrl) throw new Error('Usage: sitemap-submit <site> <sitemap-url>')
+
+  const site = await resolveSite(siteArg)
+
+  await webmasters.sitemaps.submit({
+    siteUrl: site,
+    feedpath: sitemapUrl,
+  })
+
+  console.log(`\nSubmitted ${sitemapUrl} to ${site}`)
+  console.log(`(Google will fetch it on its own schedule — usually within hours.)\n`)
+}
+
+async function cmdSitemapDelete(args: Args) {
+  const siteArg = args._[1]
+  const sitemapUrl = args._[2]
+  if (!siteArg || !sitemapUrl) throw new Error('Usage: sitemap-delete <site> <sitemap-url>')
+
+  const site = await resolveSite(siteArg)
+
+  await webmasters.sitemaps.delete({
+    siteUrl: site,
+    feedpath: sitemapUrl,
+  })
+
+  console.log(`\nDeleted ${sitemapUrl} from ${site}\n`)
+}
+
 // ---------- entry point ----------
 
 async function main() {
@@ -338,6 +371,12 @@ async function main() {
         break
       case 'sitemap-status':
         await cmdSitemapStatus(args)
+        break
+      case 'sitemap-submit':
+        await cmdSitemapSubmit(args)
+        break
+      case 'sitemap-delete':
+        await cmdSitemapDelete(args)
         break
       case 'bulk-inspect':
         await cmdBulkInspect(args)
